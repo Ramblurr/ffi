@@ -730,6 +730,14 @@
               p (ffi/alloc arena 8)]
           (call p p ffi/null p ffi/null)
           (is (= [(ffi/address p) (ffi/address p) 0 (ffi/address p) 0] @seen))))
+      (testing "a :pointer return comes back as a pointer, nil as null"
+        (let [p (ffi/alloc arena 8)
+              cb (ffi/callback arena identity [:pointer] :pointer)
+              call (ffi/cfn cb [:pointer] :pointer)
+              null-cb (ffi/callback arena (fn [_] nil) [:pointer] :pointer)
+              null-call (ffi/cfn null-cb [:pointer] :pointer)]
+          (is (= (ffi/address p) (ffi/address (call p))))
+          (is (ffi/null? (null-call p)))))
       (testing "a double among more than four arguments stays refused on a native image"
         (when (System/getProperty "org.graalvm.nativeimage.imagecode")
           (is (thrown-with-msg? Exception #"up to 6 integer and pointer args"

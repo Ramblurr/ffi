@@ -66,10 +66,11 @@
 
   Native images use libffi for every variadic call. Without libffi, a
   variadic call throws. Callbacks
-  support up to four arguments and two :double arguments. Callbacks do not
-  support :float. The callback return type must be :void, an integer type, or
-  :double. Argument order does not affect these limits. See doc/guide.md for
-  details and workarounds.
+  support up to four arguments and two :double arguments, or up to six
+  integer and pointer arguments. Callbacks do not support :float. The
+  callback return type must be :void, an integer type, :pointer, or :double.
+  Argument order does not affect these limits. See doc/guide.md for details
+  and workarounds.
 
   Add :& to argtypes to declare a variadic C function. The types before :& are
   the fixed parameters. Types after :& declare the tail once. With no types
@@ -2270,7 +2271,8 @@
   is valid until the arena releases it. There is no separate release function.
   argtypes and rettype use the cfn type keywords. f receives :pointer arguments
   as zero-size pointers. It receives
-  :bool arguments as booleans and other arguments as longs or doubles.
+  :bool arguments as booleans and other arguments as longs or doubles. For a
+  :pointer return f returns a pointer, or nil for null.
 
   Choose the arena for the thread that calls back:
 
@@ -2303,7 +2305,7 @@
                    (> doubles 2)
                    (= :float (carrier rettype)))))
     (throw (unsupported-ex "callback" argtypes rettype
-                           "callbacks support up to 4 args with at most 2 :double, or up to 6 integer and pointer args; no :float, and a :void, integer or :double return")))
+                           "callbacks support up to 4 args with at most 2 :double, or up to 6 integer and pointer args; no :float, and a :void, integer, :pointer or :double return")))
   (let [;; f returns arbitrary Clojure values and receives raw carriers:
         ;; coerce the result to the declared return type (a Boolean or
         ;; Integer crossing the upcall boundary uncaught would kill the VM)

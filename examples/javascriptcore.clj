@@ -68,9 +68,7 @@
         (finally (string-release script))))))
 
 ;; JSObjectCallAsFunctionCallback: JSValueRef f(JSContextRef, JSObjectRef,
-;; JSObjectRef, size_t, const JSValueRef[], JSValueRef*). A callback cannot
-;; return :pointer, so this returns the address as :int64, which uses the
-;; same register.
+;; JSObjectRef, size_t, const JSValueRef[], JSValueRef*).
 (defn register-fn!
   "Installs f as a global JavaScript function named js-name. f takes the
   arguments as strings and returns a string."
@@ -88,12 +86,12 @@
                    s (string-create (f vs))
                    v (value-make-string c s)]
                (string-release s)
-               (ffi/address v))
+               v)
              (catch Exception e
                ;; An exception that escapes a callback can take the process down.
                (binding [*out* *err*] (println "callback error:" (ex-message e)))
-               (ffi/address (value-make-undefined c)))))
-         [:pointer :pointer :pointer :size_t :pointer :pointer] :int64)
+               (value-make-undefined c))))
+         [:pointer :pointer :pointer :size_t :pointer :pointer] :pointer)
         name-str (string-create js-name)]
     (try
       (object-set-property ctx (global-object ctx) name-str

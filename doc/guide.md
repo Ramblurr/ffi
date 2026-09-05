@@ -1029,7 +1029,8 @@ Callbacks do not use libffi on either host and keep these limits:
 - A callback with only integer and pointer arguments can have up to 6.
   FSEvents calls back with 6 and GLFW's key callback with 5.
 - A callback cannot use `:float`.
-- A return type can be `:void`, an integer type, or `:double`.
+- A return type can be `:void`, an integer type, `:pointer`, or `:double`.
+  For `:pointer`, return a pointer, or `nil` for null.
 
 If a C API needs a callback shape outside this set, open an issue.
 
