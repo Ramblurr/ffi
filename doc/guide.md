@@ -102,6 +102,15 @@ macOS:
 - `/opt/local/lib`
 - `/usr/lib`
 
+Load a macOS framework by its full path:
+
+```clojure
+(ffi/load-library "/System/Library/Frameworks/CoreServices.framework/CoreServices")
+```
+
+The path is not a file. System frameworks live in the dyld shared cache, so
+`fs/exists?` returns false for the path and `load-library` succeeds.
+
 Linux:
 
 - the directories in `LD_LIBRARY_PATH`
