@@ -1435,7 +1435,8 @@
   :int, :uint and :int32 fill an int[] with the bits as they are, so a
   :uint above Integer/MAX_VALUE reads as a negative int. :long and the other
   eight-byte types fill a long[], and :pointer fills a long[] of addresses.
-  :byte, :char, :int8, :uint8 and :bool fill a byte[].
+  :byte, :char, :int8, :uint8 and :bool fill a byte[]. For pointers, use
+  read with [:array :pointer n].
 
   For an array of structs, or for elements decoded the way read decodes
   them, use read with an [:array t n] layout."
