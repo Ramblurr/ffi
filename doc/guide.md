@@ -102,17 +102,14 @@ macOS:
 - `/opt/local/lib`
 - `/usr/lib`
 
-A macOS framework has no `lib` prefix and no `.dylib` suffix, so
-`load-system-library` does not find it. Pass its full path to `load-library`:
+Load a macOS framework by its full path:
 
 ```clojure
 (ffi/load-library "/System/Library/Frameworks/CoreServices.framework/CoreServices")
 ```
 
-That path is not a file on disk. Since macOS 11 the system frameworks live in
-the dyld shared cache, so `fs/exists?` on the path returns false while
-`load-library` succeeds. Load first, and let the loader report a missing
-framework.
+The path is not a file. System frameworks live in the dyld shared cache, so
+`fs/exists?` returns false for the path and `load-library` succeeds.
 
 Linux:
 
