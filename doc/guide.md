@@ -618,9 +618,10 @@ decode each element. Both functions accept an optional byte offset:
 The type gives the element width and nothing else. `:int`, `:uint` and
 `:int32` fill an `int[]` with the bits as they are, so a `:uint` above
 `Integer/MAX_VALUE` reads as a negative int. The eight-byte types fill a
-`long[]`, and `:pointer` fills a `long[]` of addresses. For elements decoded
-the way `read` decodes them, or for an array of structs, use `read` with an
-`[:array t n]` layout.
+`long[]`, and `:pointer` fills a `long[]` of addresses. For pointers, use
+`read` with `[:array :pointer n]`, which returns a vector of pointers. For
+elements decoded the way `read` decodes them, or for an array of structs, use
+`read` with an `[:array t n]` layout.
 
 Use `copy` to copy bytes between two pointers, and `clone` to allocate a copy
 in an arena. Without a count, `copy` copies the byte size of the source, and
