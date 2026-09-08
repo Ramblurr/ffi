@@ -781,6 +781,27 @@
         (is (true? (call true)))
         (is (false? (call false)))))))
 
+(deftest callback-argument-conversion-test
+  (when-not (System/getProperty "babashka.version")
+    (with-open [arena (ffi/confined-arena)]
+      (let [p (ffi/alloc arena 8)]
+        ;; Seven arguments exercises the generic fallback as well.
+        (doseq [n (range 8)]
+          (let [types (vec (take n (cycle [:pointer :bool :long])))
+                args (vec (take n (cycle [p true 42])))
+                seen (atom nil)
+                cb (ffi/callback arena
+                     (fn [& values]
+                       (reset! seen (mapv (fn [t v]
+                                           (if (= t :pointer) (ffi/address v) v))
+                                         types values))
+                       (int n))
+                     types :long)
+                call (ffi/cfn cb types :long)]
+            (is (= n (apply call args)) (str "arity " n))
+            (is (= (vec (take n (cycle [(ffi/address p) true 42]))) @seen)
+                (str "converted arguments at arity " n))))))))
+
 (deftest binding-diagnostics-test
   ;; JVM only: in babashka the built-in namespace can be older than this
   ;; checkout
