@@ -2267,6 +2267,19 @@
 
 ;; -- callbacks ----------------------------------------------------------------
 
+(defn- wrap-callback [f converters ret]
+  (let [[a b c d e g] (mapv #(or % identity) converters)
+        ret (or ret identity)]
+    (case (count converters)
+      0 (fn [] (ret (f)))
+      1 (fn [x] (ret (f (a x))))
+      2 (fn [x y] (ret (f (a x) (b y))))
+      3 (fn [x y z] (ret (f (a x) (b y) (c z))))
+      4 (fn [w x y z] (ret (f (a w) (b x) (c y) (d z))))
+      5 (fn [v w x y z] (ret (f (a v) (b w) (c x) (d y) (e z))))
+      6 (fn [u v w x y z] (ret (f (a u) (b v) (c w) (d x) (e y) (g z))))
+      nil)))
+
 (defn callback
   "Creates a C function pointer that invokes f. arena owns the pointer, which
   is valid until the arena releases it. There is no separate release function.
@@ -2318,13 +2331,14 @@
                              nil))
                    argtypes)
         f (if (or ret-c (some some? in-c))
-            (let [g f]
-              (fn [& args]
-                (let [r (apply g (map-indexed
-                                  (fn [i a]
-                                    (if-let [c (nth in-c i)] (c a) a))
-                                  args))]
-                  (if ret-c (ret-c r) r))))
+            (or (wrap-callback f in-c ret-c)
+              (let [g f]
+                (fn [& args]
+                  (let [r (apply g (map-indexed
+                                    (fn [i a]
+                                      (if-let [c (nth in-c i)] (c a) a))
+                                    args))]
+                    (if ret-c (ret-c r) r)))))
             f)
         n (count argtypes)
         perm (sort-permutation argtypes)
