@@ -11,7 +11,7 @@
   babashka.ffi loads this namespace while it loads itself, on the JVM only.
   A native image calls through its trampolines and never includes this
   code. Do not require this namespace directly."
-  (:import [java.lang.foreign Linker]
+  (:import [java.lang.foreign Linker MemorySegment]
            [java.lang.invoke MethodHandle MethodHandleProxies MethodHandles MethodType]))
 
 (set! *warn-on-reflection* true)
@@ -73,10 +73,21 @@
     (arg-coercer t)
     (fn ^long [a] (Double/doubleToRawLongBits (double a)))))
 
-(defn- bits-ret-fn [carrier narrow-ret rettype]
-  (case (carrier rettype)
-    :long (fn [^long r] (narrow-ret rettype r))
-    (fn [^long r] (narrow-ret rettype (Double/longBitsToDouble r)))))
+(defn- bits-ret-fn [narrow-ret rettype]
+  ;; Resolve the type once, keeping the raw result primitive until conversion.
+  (case rettype
+    :void (fn [^long _] nil)
+    :bool (fn [^long r] (not (zero? r)))
+    (:int :int32) (fn [^long r] (long (unchecked-int r)))
+    (:uint :uint32) (fn [^long r] (bit-and r 0xFFFFFFFF))
+    :int16 (fn [^long r] (long (unchecked-short r)))
+    :uint16 (fn [^long r] (bit-and r 0xFFFF))
+    (:int8 :byte :char) (fn [^long r] (long (unchecked-byte r)))
+    :uint8 (fn [^long r] (bit-and r 0xFF))
+    (:double :float) (fn [^long r] (Double/longBitsToDouble r))
+    :pointer (fn [^long r] (MemorySegment/ofAddress r))
+    :string (fn [^long r] (narrow-ret :string r))
+    (fn [^long r] r)))
 
 (defmacro ^:private proxy-caller
   "A fn of n arguments that coerces each with the fn at its index in cs,
@@ -132,7 +143,7 @@
         fixed ((proxy-callers [n void?])
                pd
                (object-array (map #(bits-coercer carrier arg-coercer %) argtypes))
-               (bits-ret-fn carrier narrow-ret rettype))]
+               (bits-ret-fn narrow-ret rettype))]
     (if (some #(= :string %) argtypes)
       ;; strings need a temporary arena that has to outlive the call
       (fn [& args]
