@@ -744,6 +744,36 @@
                                 (ffi/callback arena (fn [_ _ _ _ _] 0)
                                               [:long :long :long :long :double] :long))))))))
 
+(deftest callback-argument-order-test
+  (with-open [arena (ffi/confined-arena)]
+    (testing "doubles before longs arrive in declared order"
+      (let [cb (ffi/callback arena (fn [a b c d] (+ (* 1000 a) (* 100 b) (* 10 c) d))
+                             [:double :long :double :long] :double)
+            call (ffi/cfn cb [:double :long :double :long] :double)]
+        (is (= 1234.0 (call 1.0 2 3.0 4)))))))
+
+(deftest callback-argument-conversion-test
+  (when-not (System/getProperty "babashka.version")
+    (with-open [arena (ffi/confined-arena)]
+      (testing "arities 0 to 6 and the rest-args fallback at 7, a distinct value per position"
+        (doseq [n (range 8)]
+          (let [types (vec (take n (cycle [:pointer :bool :long])))
+                args (mapv (fn [i t] (case t
+                                       :pointer (ffi/alloc arena 8)
+                                       :bool (odd? i)
+                                       :long (* 10 i)))
+                           (range n) types)
+                as-value (fn [t v] (if (= :pointer t) (ffi/address v) v))
+                seen (atom nil)
+                cb (ffi/callback arena
+                     (fn [& values]
+                       (reset! seen (mapv as-value types values))
+                       (int n))
+                     types :long)
+                call (ffi/cfn cb types :long)]
+            (is (= n (apply call args)) (str "arity " n))
+            (is (= (mapv as-value types args) @seen)
+                (str "converted arguments at arity " n))))))))
 (deftest jvm-return-conversion-test
   (when-not (System/getProperty "babashka.version")
     (with-open [arena (ffi/confined-arena)]
