@@ -745,7 +745,7 @@
     :array (holds-union? (:elem lay))
     false))
 
-(declare ^:private fixed-cfn ^:private fixed-ffm-cfn ^:private variadic-ffm-cfn
+(declare ^:private native-cfn ^:private fixed-cfn ^:private fixed-ffm-cfn ^:private variadic-ffm-cfn
          ^:private libffi-cfn ^:private libffi-available? ^:private struct-ffm-cfn)
 
 (defn- variadic-libffi-cfn
@@ -960,22 +960,27 @@
 
 (defn- fixed-cfn
   [lib sym argtypes rettype]
-  (if (and native-image?
+  (cond
+    (and (not native-image?) (<= (count argtypes) 6) (not-any? #{:string} argtypes))
+    (native-cfn lib sym argtypes rettype)
+
+    (and native-image?
            (not (get trampoline-ids (shape-key (let [p (sort-permutation argtypes)]
                                                  (if p (mapv argtypes p) argtypes))
                                                rettype)))
            (libffi-available?))
     ;; no trampoline for this shape: libffi makes the call (~1us)
     (libffi-cfn lib sym argtypes rettype)
-    (fixed-ffm-cfn lib sym argtypes rettype)))
+    :else (fixed-ffm-cfn lib sym argtypes rettype)))
 
-;; On the JVM a binding calls through an interface proxy over the downcall
-;; handle, see babashka.ffi.impl.proxy. Resolved here, at load time, and
+;; JVM bindings use generated constant targets or an interface proxy for string
+;; arguments, see babashka.ffi.impl.proxy. Resolved here, at load time, and
 ;; never in a native image: a run-time require would make the Clojure
 ;; compiler reachable and grow the image.
-(def ^:private proxy-cfn
+(def ^:private jvm-cfns
   (when-not native-image?
-    (let [f (requiring-resolve 'babashka.ffi.impl.proxy/proxy-cfn)
+    (let [proxy (requiring-resolve 'babashka.ffi.impl.proxy/proxy-cfn)
+          native (requiring-resolve 'babashka.ffi.impl.proxy/native-cfn)
           helpers {:carrier carrier
                    :arg-coercer arg-coercer
                    :narrow-ret narrow-ret
@@ -983,7 +988,11 @@
                    :descriptor descriptor
                    :require-symbol require-symbol
                    :linker (fn [] @linker*)}]
-      (fn [lib sym argtypes rettype] (f helpers lib sym argtypes rettype)))))
+      {:proxy (fn [lib sym argtypes rettype] (proxy helpers lib sym argtypes rettype))
+       :native (fn [lib sym argtypes rettype] (native helpers lib sym argtypes rettype))})))
+
+(def ^:private proxy-cfn (:proxy jvm-cfns))
+(def ^:private native-cfn (:native jvm-cfns))
 
 (defn- fixed-ffm-cfn
   [lib sym argtypes rettype]

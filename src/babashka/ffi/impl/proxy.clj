@@ -1,17 +1,19 @@
 (ns ^:no-doc babashka.ffi.impl.proxy
-  "JVM downcalls through an interface proxy.
+  "JVM downcalls with primitive carriers.
 
   MethodHandle.invokeWithArguments is the generic path: it checks and boxes
   every argument on each call, about 40ns. Clojure cannot emit invokeExact,
   so the downcall handle is adapted once to an interface whose method takes
   every argument as a long and returns a long or nothing, and
-  MethodHandleProxies binds the two. The JIT inlines the call through the
-  interface, about 4ns. Doubles and floats travel as their raw long bits.
+  MethodHandleProxies binds the two for calls with temporary string arguments.
+  Other fixed calls use a generated callable with a lazy, constant native target.
+  Doubles and floats travel as their raw long bits.
 
   babashka.ffi loads this namespace while it loads itself, on the JVM only.
   A native image calls through its trampolines and never includes this
   code. Do not require this namespace directly."
-  (:import [java.lang.foreign Linker]
+  (:require [babashka.ffi.impl.binding :as binding])
+  (:import [java.lang.foreign Linker MemorySegment]
            [java.lang.invoke MethodHandle MethodHandleProxies MethodHandles MethodType]))
 
 (set! *warn-on-reflection* true)
@@ -72,6 +74,15 @@
   (if (= :long (carrier t))
     (arg-coercer t)
     (fn ^long [a] (Double/doubleToRawLongBits (double a)))))
+
+(defn- pointer-coercer [^clojure.lang.IFn$OL fallback]
+  (let [global-scope (.scope MemorySegment/NULL)]
+    (fn ^long [p]
+      (if (and (instance? MemorySegment p)
+               (.isNative ^MemorySegment p)
+               (identical? global-scope (.scope ^MemorySegment p)))
+        (.address ^MemorySegment p)
+        (.invokePrim fallback p)))))
 
 (defn- bits-ret-fn [carrier narrow-ret rettype]
   (case (carrier rettype)
@@ -141,3 +152,21 @@
           (throw (ex-info (str "babashka.ffi: " sym " expects " n " args, got " (count args))
                           {:symbol sym}))))
       fixed)))
+
+(defn native-cfn
+  "Creates a metadata-bearing JVM binding with a lazy native target.
+  Arguments and results use the existing coercers and long-bit carriers."
+  [{:keys [carrier arg-coercer narrow-ret descriptor require-symbol linker]}
+   lib sym argtypes rettype]
+  (doseq [t (cons rettype argtypes)] (carrier t))
+  (let [pd (delay
+             (long-bits-handle
+               carrier
+               (.downcallHandle ^Linker (linker) (require-symbol lib sym)
+                                (descriptor argtypes rettype)
+                                (make-array java.lang.foreign.Linker$Option 0))
+               argtypes rettype))
+        coercers (assoc arg-coercer :pointer (pointer-coercer (:pointer arg-coercer)))]
+    (binding/make-binding pd (mapv #(bits-coercer carrier coercers %) argtypes)
+                          (bits-ret-fn carrier narrow-ret rettype)
+                          {:babashka.ffi/backend :ffm} sym argtypes rettype)))
