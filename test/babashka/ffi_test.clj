@@ -744,6 +744,73 @@
                                 (ffi/callback arena (fn [_ _ _ _ _] 0)
                                               [:long :long :long :long :double] :long))))))))
 
+(deftest callback-argument-order-test
+  (with-open [arena (ffi/confined-arena)]
+    (testing "doubles before longs arrive in declared order"
+      (let [cb (ffi/callback arena (fn [a b c d] (+ (* 1000 a) (* 100 b) (* 10 c) d))
+                             [:double :long :double :long] :double)
+            call (ffi/cfn cb [:double :long :double :long] :double)]
+        (is (= 1234.0 (call 1.0 2 3.0 4)))))))
+
+(deftest callback-argument-conversion-test
+  (when-not (System/getProperty "babashka.version")
+    (with-open [arena (ffi/confined-arena)]
+      (testing "arities 0 to 6 and the rest-args fallback at 7, a distinct value per position"
+        (doseq [n (range 8)]
+          (let [types (vec (take n (cycle [:pointer :bool :long])))
+                args (mapv (fn [i t] (case t
+                                       :pointer (ffi/alloc arena 8)
+                                       :bool (odd? i)
+                                       :long (* 10 i)))
+                           (range n) types)
+                as-value (fn [t v] (if (= :pointer t) (ffi/address v) v))
+                seen (atom nil)
+                cb (ffi/callback arena
+                     (fn [& values]
+                       (reset! seen (mapv as-value types values))
+                       (int n))
+                     types :long)
+                call (ffi/cfn cb types :long)]
+            (is (= n (apply call args)) (str "arity " n))
+            (is (= (mapv as-value types args) @seen)
+                (str "converted arguments at arity " n))))))))
+(deftest jvm-return-conversion-test
+  (when-not (System/getProperty "babashka.version")
+    (with-open [arena (ffi/confined-arena)]
+      (doseq [[t cases]
+              [[:int [[0 0] [2147483647 2147483647] [2147483648 -2147483648] [4294967295 -1]]]
+               [:int32 [[4294967295 -1]]]
+               [:uint [[-1 4294967295] [4294967296 0]]]
+               [:uint32 [[-1 4294967295]]]
+               [:int16 [[32768 -32768] [65535 -1]]]
+               [:uint16 [[-1 65535] [65536 0]]]
+               [:int8 [[128 -128] [255 -1]]]
+               [:byte [[255 -1]]]
+               [:char [[255 -1]]]
+               [:uint8 [[-1 255] [256 0]]]
+               [:long [[Long/MIN_VALUE Long/MIN_VALUE] [Long/MAX_VALUE Long/MAX_VALUE]]]
+               [:ulong [[-1 -1]]]
+               [:int64 [[Long/MIN_VALUE Long/MIN_VALUE]]]
+               [:uint64 [[-1 -1]]]
+               [:size_t [[4294967296 4294967296]]]
+               [:ssize_t [[-1 -1]]]]]
+        (let [cb (ffi/callback arena identity [:long] t)
+              call (ffi/cfn cb [:long] t)]
+          (doseq [[input expected] cases]
+            (is (= expected (call input)) (str t " " input)))))
+      (doseq [t [:double :float]]
+        (let [cb (ffi/callback arena identity [t] t)
+              call (ffi/cfn cb [t] t)]
+          (doseq [value [0.0 -0.0 1.25 Double/POSITIVE_INFINITY Double/NEGATIVE_INFINITY]]
+            (is (= (Double/doubleToRawLongBits value)
+                   (Double/doubleToRawLongBits (double (call value)))) (str t " " value)))
+          (is (Double/isNaN (double (call Double/NaN)))))))
+    (with-open [arena (ffi/confined-arena)]
+      (let [cb (ffi/callback arena identity [:bool] :bool)
+            call (ffi/cfn cb [:bool] :bool)]
+        (is (true? (call true)))
+        (is (false? (call false)))))))
+
 (deftest binding-diagnostics-test
   ;; JVM only: in babashka the built-in namespace can be older than this
   ;; checkout

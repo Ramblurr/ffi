@@ -84,10 +84,21 @@
         (.address ^MemorySegment p)
         (.invokePrim fallback p)))))
 
-(defn- bits-ret-fn [carrier narrow-ret rettype]
-  (case (carrier rettype)
-    :long (fn [^long r] (narrow-ret rettype r))
-    (fn [^long r] (narrow-ret rettype (Double/longBitsToDouble r)))))
+(defn- bits-ret-fn [narrow-ret rettype]
+  ;; Resolve the type once, keeping the raw result primitive until conversion.
+  (case rettype
+    :void (fn [^long _] nil)
+    :bool (fn [^long r] (not (zero? r)))
+    (:int :int32) (fn [^long r] (long (unchecked-int r)))
+    (:uint :uint32) (fn [^long r] (bit-and r 0xFFFFFFFF))
+    :int16 (fn [^long r] (long (unchecked-short r)))
+    :uint16 (fn [^long r] (bit-and r 0xFFFF))
+    (:int8 :byte :char) (fn [^long r] (long (unchecked-byte r)))
+    :uint8 (fn [^long r] (bit-and r 0xFF))
+    (:double :float) (fn [^long r] (Double/longBitsToDouble r))
+    :pointer (fn [^long r] (MemorySegment/ofAddress r))
+    :string (fn [^long r] (narrow-ret :string r))
+    (fn [^long r] r)))
 
 (defmacro ^:private proxy-caller
   "A fn of n arguments that coerces each with the fn at its index in cs,
@@ -143,7 +154,7 @@
         fixed ((proxy-callers [n void?])
                pd
                (object-array (map #(bits-coercer carrier arg-coercer %) argtypes))
-               (bits-ret-fn carrier narrow-ret rettype))]
+               (bits-ret-fn narrow-ret rettype))]
     (if (some #(= :string %) argtypes)
       ;; strings need a temporary arena that has to outlive the call
       (fn [& args]
@@ -168,5 +179,5 @@
                argtypes rettype))
         coercers (assoc arg-coercer :pointer (pointer-coercer (:pointer arg-coercer)))]
     (binding/make-binding pd (mapv #(bits-coercer carrier coercers %) argtypes)
-                          (bits-ret-fn carrier narrow-ret rettype)
+                          (bits-ret-fn narrow-ret rettype)
                           {:babashka.ffi/backend :ffm} sym argtypes rettype)))
