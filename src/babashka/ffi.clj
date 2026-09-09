@@ -2341,7 +2341,9 @@
                     (if ret-c (ret-c r) r)))))
             f)
         n (count argtypes)
-        perm (sort-permutation argtypes)
+        ;; the FFM linker takes any order, only a pre-registered image shape
+        ;; needs the canonical one
+        perm (when native-image? (sort-permutation argtypes))
         inv (when perm (inverse-permutation perm))
         argtypes (if perm (mapv argtypes perm) argtypes)
         f (if perm

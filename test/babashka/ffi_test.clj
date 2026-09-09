@@ -744,6 +744,14 @@
                                 (ffi/callback arena (fn [_ _ _ _ _] 0)
                                               [:long :long :long :long :double] :long))))))))
 
+(deftest callback-argument-order-test
+  (with-open [arena (ffi/confined-arena)]
+    (testing "doubles before longs arrive in declared order"
+      (let [cb (ffi/callback arena (fn [a b c d] (+ (* 1000 a) (* 100 b) (* 10 c) d))
+                             [:double :long :double :long] :double)
+            call (ffi/cfn cb [:double :long :double :long] :double)]
+        (is (= 1234.0 (call 1.0 2 3.0 4)))))))
+
 (deftest callback-argument-conversion-test
   (when-not (System/getProperty "babashka.version")
     (with-open [arena (ffi/confined-arena)]
