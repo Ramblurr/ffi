@@ -756,7 +756,7 @@
                 cb (ffi/callback arena
                      (fn [& values]
                        (reset! seen (mapv (fn [t v]
-                                           (if (= t :pointer) (ffi/address v) v))
+                                           (if (= :pointer t) (ffi/address v) v))
                                          types values))
                        (int n))
                      types :long)
@@ -764,6 +764,42 @@
             (is (= n (apply call args)) (str "arity " n))
             (is (= (vec (take n (cycle [(ffi/address p) true 42]))) @seen)
                 (str "converted arguments at arity " n))))))))
+(deftest jvm-return-conversion-test
+  (when-not (System/getProperty "babashka.version")
+    (with-open [arena (ffi/confined-arena)]
+      (doseq [[t cases]
+              [[:int [[0 0] [2147483647 2147483647] [2147483648 -2147483648] [4294967295 -1]]]
+               [:int32 [[4294967295 -1]]]
+               [:uint [[-1 4294967295] [4294967296 0]]]
+               [:uint32 [[-1 4294967295]]]
+               [:int16 [[32768 -32768] [65535 -1]]]
+               [:uint16 [[-1 65535] [65536 0]]]
+               [:int8 [[128 -128] [255 -1]]]
+               [:byte [[255 -1]]]
+               [:char [[255 -1]]]
+               [:uint8 [[-1 255] [256 0]]]
+               [:long [[Long/MIN_VALUE Long/MIN_VALUE] [Long/MAX_VALUE Long/MAX_VALUE]]]
+               [:ulong [[-1 -1]]]
+               [:int64 [[Long/MIN_VALUE Long/MIN_VALUE]]]
+               [:uint64 [[-1 -1]]]
+               [:size_t [[4294967296 4294967296]]]
+               [:ssize_t [[-1 -1]]]]]
+        (let [cb (ffi/callback arena identity [:long] t)
+              call (ffi/cfn cb [:long] t)]
+          (doseq [[input expected] cases]
+            (is (= expected (call input)) (str t " " input)))))
+      (doseq [t [:double :float]]
+        (let [cb (ffi/callback arena identity [t] t)
+              call (ffi/cfn cb [t] t)]
+          (doseq [value [0.0 -0.0 1.25 Double/POSITIVE_INFINITY Double/NEGATIVE_INFINITY]]
+            (is (= (Double/doubleToRawLongBits value)
+                   (Double/doubleToRawLongBits (double (call value)))) (str t " " value)))
+          (is (Double/isNaN (double (call Double/NaN)))))))
+    (with-open [arena (ffi/confined-arena)]
+      (let [cb (ffi/callback arena identity [:bool] :bool)
+            call (ffi/cfn cb [:bool] :bool)]
+        (is (true? (call true)))
+        (is (false? (call false)))))))
 
 (deftest binding-diagnostics-test
   ;; JVM only: in babashka the built-in namespace can be older than this
