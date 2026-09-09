@@ -66,6 +66,19 @@
     #_{:clj-kondo/ignore [:invalid-arity]}
     (is (thrown? clojure.lang.ArityException (ffi/alloc 8)))))
 
+(deftest signed-byte-read-test
+  (with-open [arena (ffi/confined-arena)]
+    (let [p (ffi/alloc arena 256)]
+      (doseq [i (range 256)]
+        (let [expected (long (unchecked-byte i))]
+          (ffi/write p :byte expected i)
+          (let [offset-value (ffi/read p :byte i)
+                view-value (ffi/read (ffi/slice p i 1) :byte)]
+            (is (= [expected expected Long Long]
+                   [offset-value view-value (class offset-value) (class view-value)])))))
+      (is (thrown? Exception (ffi/read p :byte -1)))
+      (is (thrown? Exception (ffi/read p :byte 256))))))
+
 (deftest layout-test
   (testing "sizeof and alignof resolve a layout"
     (is (= 8 (ffi/sizeof point)))
