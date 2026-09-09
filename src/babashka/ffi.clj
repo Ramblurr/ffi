@@ -1327,6 +1327,31 @@
 ;; the generated constructor is not API: place is
 (alter-meta! #'->Place assoc :private true)
 
+(defn- read-value [^MemorySegment seg t ^long off]
+  (case t
+    (:int :int32) (get-i32 seg off)
+    (:uint :uint32) (bit-and (get-i32 seg off) 0xFFFFFFFF)
+    (:long :ulong :int64 :uint64 :size_t :ssize_t) (get-i64 seg off)
+    ;; read as a long and wrap it: the address layout's getter costs twice
+    ;; as much in a native image
+    :pointer (MemorySegment/ofAddress (get-i64 seg off))
+    :int16 (get-i16 seg off)
+    :uint16 (bit-and (get-i16 seg off) 0xFFFF)
+    :bool (not (zero? (get-i8 seg off)))
+    (:int8 :byte :char) (get-i8 seg off)
+    :uint8 (bit-and (get-i8 seg off) 0xFF)
+    :double (get-f64 seg off)
+    :float (get-f32 seg off)
+    :string (string-at (get-i64 seg off))
+    (cond
+      (instance? Place t)
+      ((.-decode ^Place t) (if (zero? off) seg (.asSlice seg off)))
+      (layout-vector? t)
+      (let [dec (cached-codec :decode (layout-of t))]
+        (dec (if (zero? off) seg (.asSlice seg off))))
+      :else
+      (throw (ex-info (str "babashka.ffi: cannot read type " t) {:type t})))))
+
 (defn read
   "Reads a value of type t from p. The default byte offset is zero.
 
@@ -1339,29 +1364,10 @@
   ([p t offset]
    (let [off (long offset)
          ^MemorySegment seg (accessible p)]
-     (case t
-       (:int :int32) (get-i32 seg off)
-       (:uint :uint32) (bit-and (get-i32 seg off) 0xFFFFFFFF)
-       (:long :ulong :int64 :uint64 :size_t :ssize_t) (get-i64 seg off)
-       ;; read as a long and wrap it: the address layout's getter costs twice
-       ;; as much in a native image
-       :pointer (MemorySegment/ofAddress (get-i64 seg off))
-       :int16 (get-i16 seg off)
-       :uint16 (bit-and (get-i16 seg off) 0xFFFF)
-       :bool (not (zero? (get-i8 seg off)))
-       (:int8 :byte :char) (get-i8 seg off)
-       :uint8 (bit-and (get-i8 seg off) 0xFF)
-       :double (get-f64 seg off)
-       :float (get-f32 seg off)
-       :string (string-at (get-i64 seg off))
-       (cond
-         (instance? Place t)
-         ((.-decode ^Place t) (if (zero? off) seg (.asSlice seg off)))
-         (layout-vector? t)
-         (let [dec (cached-codec :decode (layout-of t))]
-           (dec (if (zero? off) seg (.asSlice seg off))))
-         :else
-         (throw (ex-info (str "babashka.ffi: cannot read type " t) {:type t})))))))
+     ;; Keep the common tag read small enough to inline into blob decoders.
+     (if (identical? t :byte)
+       (get-i8 seg off)
+       (read-value seg t off)))))
 
 (defn write
   "Writes v as type t to p. The default byte offset is zero. Returns nil.
